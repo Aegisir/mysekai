@@ -33,6 +33,8 @@ export interface RuntimeModelInstance {
   setCharacterRotation(degrees: number): void;
   setCharacterMirror(enabled: boolean): void;
   canDragCharacterAt(x: number, y: number): boolean;
+  readAnimationDuration(animation: string): number | undefined;
+  captureFrame(deltaSeconds: number): void;
   resize(size: StageSize): void;
   setPaused(paused: boolean): void;
   destroy(): void;

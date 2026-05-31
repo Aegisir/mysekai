@@ -1,4 +1,5 @@
 import { createMemo, createSignal, onCleanup } from 'solid-js';
+import { GIFEncoder, applyPalette, quantize } from 'gifenc';
 
 import { clampTimeScale, composePlayCommand, composeStopCommand } from '@/actions/actionComposer';
 import { areaSdDefaultModelId, sampleManifest } from '@/data/sampleManifest';
@@ -30,6 +31,138 @@ const firstModel = (): ModelDefinition => {
 const toErrorMessage = (error: unknown): string =>
   error instanceof Error ? error.message : 'Unknown runtime error.';
 
+const GIF_EXPORT_FPS = 30;
+const GIF_EXPORT_FALLBACK_SECONDS = 2.5;
+const GIF_EXPORT_MAX_SECONDS = 4;
+const GIF_EXPORT_MAX_FRAMES = 120;
+const GIF_EXPORT_MAX_SIDE = 320;
+const GIF_EXPORT_COLORS = 256;
+
+const pad = (value: number): string => value.toString().padStart(2, '0');
+
+const buildDownloadName = (extension: 'png' | 'gif'): string => {
+  const now = new Date();
+  const stamp =
+    `${now.getFullYear()}${pad(now.getMonth() + 1)}${pad(now.getDate())}-` +
+    `${pad(now.getHours())}${pad(now.getMinutes())}${pad(now.getSeconds())}`;
+
+  return `sekai-chibi-lab-${stamp}.${extension}`;
+};
+
+const triggerDownload = (url: string, filename: string): void => {
+  const anchor = document.createElement('a');
+
+  anchor.href = url;
+  anchor.download = filename;
+  document.body.append(anchor);
+  anchor.click();
+  anchor.remove();
+};
+
+const readStageCanvases = (): HTMLCanvasElement[] =>
+  Array.from(document.querySelectorAll<HTMLCanvasElement>('.stage-shell .pixi-canvas'));
+
+const composeStageSnapshot = (): HTMLCanvasElement | undefined => {
+  const layers = readStageCanvases();
+  const first = layers[0];
+
+  if (!first) {
+    return undefined;
+  }
+
+  const width = first.width;
+  const height = first.height;
+
+  if (width <= 0 || height <= 0) {
+    return undefined;
+  }
+
+  const output = document.createElement('canvas');
+
+  output.width = width;
+  output.height = height;
+
+  const context = output.getContext('2d');
+
+  if (!context) {
+    return undefined;
+  }
+
+  context.clearRect(0, 0, width, height);
+
+  for (const layer of layers) {
+    context.drawImage(layer, 0, 0, width, height);
+  }
+
+  return output;
+};
+
+const resizeCanvasForGif = (canvas: HTMLCanvasElement): HTMLCanvasElement => {
+  const longestSide = Math.max(canvas.width, canvas.height);
+
+  if (longestSide <= GIF_EXPORT_MAX_SIDE) {
+    return canvas;
+  }
+
+  const scale = GIF_EXPORT_MAX_SIDE / longestSide;
+  const output = document.createElement('canvas');
+
+  output.width = Math.max(1, Math.round(canvas.width * scale));
+  output.height = Math.max(1, Math.round(canvas.height * scale));
+
+  const context = output.getContext('2d');
+
+  if (!context) {
+    return canvas;
+  }
+
+  context.imageSmoothingEnabled = true;
+  context.imageSmoothingQuality = 'high';
+  context.drawImage(canvas, 0, 0, output.width, output.height);
+
+  return output;
+};
+
+const readCanvasImageData = (canvas: HTMLCanvasElement): ImageData | undefined => {
+  const context = canvas.getContext('2d', { willReadFrequently: true });
+
+  return context?.getImageData(0, 0, canvas.width, canvas.height);
+};
+
+const encodeGif = (frames: readonly ImageData[]): Blob => {
+  const firstFrame = frames[0];
+
+  if (!firstFrame) {
+    throw new Error('No GIF frames were captured.');
+  }
+
+  const gif = GIFEncoder();
+  const delay = Math.round(1000 / GIF_EXPORT_FPS);
+
+  for (const [index, frame] of frames.entries()) {
+    const palette = quantize(frame.data, GIF_EXPORT_COLORS, { format: 'rgba4444', oneBitAlpha: 16 });
+    const indexedFrame = applyPalette(frame.data, palette, 'rgba4444');
+    const options = {
+      palette,
+      delay,
+      transparent: true,
+      transparentIndex: 0,
+      ...(index === 0 ? { repeat: 0 } : {}),
+    };
+
+    gif.writeFrame(indexedFrame, frame.width, frame.height, options);
+  }
+
+  gif.finish();
+  const bytes = gif.bytes();
+  const output = new ArrayBuffer(bytes.byteLength);
+  const outputBytes = new Uint8Array(output);
+
+  outputBytes.set(bytes);
+
+  return new Blob([output], { type: 'image/gif' });
+};
+
 export const App = () => {
   const initialModel = firstModel();
   const [controller, setController] = createSignal<StageController>();
@@ -44,6 +177,7 @@ export const App = () => {
   const [dockOffset, setDockOffset] = createSignal({ x: 0, y: 0 });
   const [actors, setActors] = createSignal<readonly ActorEntry[]>([]);
   const [activeActorId, setActiveActorId] = createSignal<string | undefined>();
+  const [exportingGif, setExportingGif] = createSignal(false);
   const canUseStage = createMemo(() => Boolean(controller()) && status() !== 'loading');
   const canControlMotion = createMemo(
     () => Boolean(controller()) && status() === 'ready' && Boolean(activeActorId()),
@@ -283,6 +417,114 @@ export const App = () => {
     controller()?.setCharacterShadow(enabled);
   };
 
+  const handleDownloadPng = (): void => {
+    try {
+      const snapshot = composeStageSnapshot();
+
+      if (!snapshot) {
+        setMessage('Stage is not ready for PNG export.');
+        return;
+      }
+
+      const url = snapshot.toDataURL('image/png');
+
+      triggerDownload(url, buildDownloadName('png'));
+      setMessage('PNG downloaded.');
+    } catch (error) {
+      setMessage(toErrorMessage(error));
+    }
+  };
+
+  const handleDownloadGif = async (action: ActionDefinition | undefined, loop: boolean): Promise<void> => {
+    if (exportingGif()) {
+      return;
+    }
+
+    const stage = controller();
+    const snapshot = composeStageSnapshot();
+
+    if (!stage || !snapshot) {
+      setMessage('Stage is not ready for GIF export.');
+      return;
+    }
+
+    const frameDelta = 1 / GIF_EXPORT_FPS;
+    const animationSeconds = action ? stage.readActiveAnimationDuration(action.animation) : undefined;
+    const boundedSeconds = Math.min(
+      GIF_EXPORT_MAX_SECONDS,
+      Math.max(frameDelta, animationSeconds ?? GIF_EXPORT_FALLBACK_SECONDS),
+    );
+    const totalFrames = Math.min(GIF_EXPORT_MAX_FRAMES, Math.max(1, Math.ceil(boundedSeconds * GIF_EXPORT_FPS)));
+
+    setExportingGif(true);
+    setMessage(`Rendering GIF frame 1/${totalFrames}...`);
+
+    try {
+      const frames: ImageData[] = [];
+
+      stage.setPaused(true);
+
+      if (action) {
+        stage.executeActive(composePlayCommand(action, timeScale(), false));
+      }
+
+      for (let index = 0; index < totalFrames; index += 1) {
+        stage.captureFrame(index === 0 ? 0 : frameDelta);
+
+        const frame = composeStageSnapshot();
+
+        if (!frame) {
+          continue;
+        }
+
+        const imageData = readCanvasImageData(resizeCanvasForGif(frame));
+
+        if (imageData) {
+          frames.push(imageData);
+        }
+
+        if (index % 5 === 0 || index === totalFrames - 1) {
+          setMessage(`Rendering GIF frame ${Math.min(index + 2, totalFrames)}/${totalFrames}...`);
+          await new Promise<void>((resolve) => window.setTimeout(resolve, 0));
+        }
+      }
+
+      if (frames.length === 0) {
+        throw new Error('No GIF frames were captured.');
+      }
+
+      if (action) {
+        stage.executeActive(composePlayCommand(action, timeScale(), loop));
+      }
+
+      stage.captureFrame(0);
+      stage.setPaused(false);
+      setMessage('Encoding GIF...');
+      await new Promise<void>((resolve) => window.setTimeout(resolve, 0));
+
+      const blob = encodeGif(frames);
+      const url = URL.createObjectURL(blob);
+
+      try {
+        triggerDownload(url, buildDownloadName('gif'));
+      } finally {
+        URL.revokeObjectURL(url);
+      }
+
+      setMessage('GIF downloaded.');
+    } catch (error) {
+      setMessage(toErrorMessage(error));
+    } finally {
+      if (action) {
+        stage.executeActive(composePlayCommand(action, timeScale(), loop));
+      }
+
+      stage.captureFrame(0);
+      stage.setPaused(false);
+      setExportingGif(false);
+    }
+  };
+
   return (
     <div class="app-shell">
       <header class="top-bar">
@@ -327,6 +569,7 @@ export const App = () => {
             rotation={rotation()}
             mirrorEnabled={mirrorEnabled()}
             shadowEnabled={shadowEnabled()}
+            exportingGif={exportingGif()}
             onPlay={handlePlay}
             onStop={handleStop}
             onTimeScaleChange={handleTimeScaleChange}
@@ -335,6 +578,8 @@ export const App = () => {
             onMirrorToggle={handleMirrorToggle}
             onShadowToggle={handleShadowToggle}
             onResetTransform={handleResetTransform}
+            onDownloadPng={handleDownloadPng}
+            onDownloadGif={(action, loop) => void handleDownloadGif(action, loop)}
           />
         </aside>
       </main>

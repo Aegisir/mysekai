@@ -5,7 +5,7 @@ import type { RuntimeCommand, RuntimeModelInstance, StageSize } from '@/runtime/
 
 export class StageController {
   private readonly instances: RuntimeModelInstance[] = [];
-  private readonly characterOffsets: Array<{ x: number; y: number }> = [];
+  private readonly characterOffsets: { x: number; y: number }[] = [];
   private readonly characterScales: number[] = [];
   private readonly characterRotations: number[] = [];
   private readonly characterMirrors: boolean[] = [];
@@ -148,6 +148,22 @@ export class StageController {
 
   canDragActiveCharacterAt(x: number, y: number): boolean {
     return this.readActiveInstance()?.canDragCharacterAt(x, y) ?? false;
+  }
+
+  readActiveAnimationDuration(animation: string): number | undefined {
+    return this.readActiveInstance()?.readAnimationDuration(animation);
+  }
+
+  captureFrame(deltaSeconds: number): void {
+    for (const instance of this.instances) {
+      instance.captureFrame(deltaSeconds);
+    }
+  }
+
+  setPaused(paused: boolean): void {
+    for (const instance of this.instances) {
+      instance.setPaused(paused);
+    }
   }
 
   pickActiveIndexAt(x: number, y: number, radius = 0): number {

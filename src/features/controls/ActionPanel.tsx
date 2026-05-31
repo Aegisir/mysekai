@@ -18,6 +18,9 @@ interface ActionPanelProps {
   readonly onMirrorToggle: (enabled: boolean) => void;
   readonly onShadowToggle: (enabled: boolean) => void;
   readonly onResetTransform: () => void;
+  readonly onDownloadPng: () => void;
+  readonly onDownloadGif: (action: ActionDefinition | undefined, loop: boolean) => void;
+  readonly exportingGif: boolean;
 }
 
 export const ActionPanel = (props: ActionPanelProps) => {
@@ -197,6 +200,20 @@ export const ActionPanel = (props: ActionPanelProps) => {
       <button class="ghost-button" type="button" onClick={props.onResetTransform} disabled={props.disabled}>
         Reset Transform
       </button>
+
+      <div class="button-row">
+        <button class="ghost-button" type="button" onClick={props.onDownloadPng} disabled={props.disabled}>
+          Download PNG
+        </button>
+        <button
+          class="ghost-button"
+          type="button"
+          onClick={() => props.onDownloadGif(selectedAction(), loopEnabled())}
+          disabled={props.disabled || props.exportingGif}
+        >
+          {props.exportingGif ? 'Exporting GIF...' : 'Download GIF'}
+        </button>
+      </div>
 
       <label class="field checkbox-field">
         <span>Shadow</span>

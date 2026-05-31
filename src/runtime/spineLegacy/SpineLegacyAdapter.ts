@@ -190,6 +190,14 @@ class SpineLegacyModelInstance implements RuntimeModelInstance {
     );
   }
 
+  readAnimationDuration(animation: string): number | undefined {
+    return this.spine.spineData.animations.find((candidate) => candidate.name === animation)?.duration;
+  }
+
+  captureFrame(deltaSeconds: number): void {
+    this.renderFrame(deltaSeconds);
+  }
+
   resize(size: StageSize): void {
     this.app.renderer.resize(size.width, size.height);
     this.layout(size);
@@ -277,6 +285,7 @@ export class SpineLegacyAdapter implements RuntimeAdapter {
       autoDensity: true,
       antialias: quality.antialias,
       backgroundAlpha: 0,
+      preserveDrawingBuffer: true,
       resolution: quality.resolution,
     });
     const spine = new Spine(skeletonData);

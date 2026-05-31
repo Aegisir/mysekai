@@ -121,6 +121,15 @@ class SpineModelInstance implements RuntimeModelInstance {
     );
   }
 
+  readAnimationDuration(animation: string): number | undefined {
+    return this.spine.skeleton.data.animations.find((candidate) => candidate.name === animation)?.duration;
+  }
+
+  captureFrame(deltaSeconds: number): void {
+    this.spine.update(deltaSeconds);
+    this.app.render();
+  }
+
   resize(size: StageSize): void {
     this.app.renderer.resize(size.width, size.height);
     this.layout(size);

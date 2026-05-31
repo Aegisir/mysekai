@@ -13,6 +13,7 @@ export const createPixiApp = async (quality: RenderQuality = pickRenderQuality()
     autoDensity: true,
     autoStart: true,
     backgroundAlpha: 0,
+    preserveDrawingBuffer: true,
     antialias: quality.antialias,
     preference: 'webgl',
     powerPreference: 'high-performance',
