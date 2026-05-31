@@ -546,39 +546,46 @@ export const App = () => {
             '--dock-offset-y': `${dockOffset().y}px`,
           }}
         >
-          <ModelPanel
-            characters={sampleManifest.characters}
-            selectedModelId={selectedModel().id}
-            disabled={!canUseStage()}
-            actors={actors().map((actor, index) => ({ id: actor.id, label: `${index + 1}. ${actor.model.name}` }))}
-            activeActorId={activeActorId()}
-            onSelect={handleModelSelect}
-            onAdd={(model) => void addModel(model)}
-            onDeleteActive={handleDeleteActive}
-            onActiveActorChange={handleActiveActorChange}
-            onDragStart={handleDockDragStart}
-          />
+          <div class="control-banner-shell" aria-hidden="true">
+            <img class="control-banner control-banner-bg" src="/control-banner.png" alt="Sekai Chibi Lab banner" />
+            <img class="control-banner control-banner-right" src="/control-banner-right.png" alt="" />
+          </div>
 
-          <ActionPanel
-            model={activeActor()?.model ?? selectedModel()}
-            disabled={!canControlMotion()}
-            timeScale={timeScale()}
-            sizeScale={sizeScale()}
-            rotation={rotation()}
-            mirrorEnabled={mirrorEnabled()}
-            shadowEnabled={shadowEnabled()}
-            exportingGif={exportingGif()}
-            onPlay={handlePlay}
-            onStop={handleStop}
-            onTimeScaleChange={handleTimeScaleChange}
-            onSizeScaleChange={handleSizeScaleChange}
-            onRotationChange={handleRotationChange}
-            onMirrorToggle={handleMirrorToggle}
-            onShadowToggle={handleShadowToggle}
-            onResetTransform={handleResetTransform}
-            onDownloadPng={handleDownloadPng}
-            onDownloadGif={(action, loop) => void handleDownloadGif(action, loop)}
-          />
+          <div class="control-dock-scroll">
+            <ModelPanel
+              characters={sampleManifest.characters}
+              selectedModelId={selectedModel().id}
+              disabled={!canUseStage()}
+              actors={actors().map((actor, index) => ({ id: actor.id, label: `${index + 1}. ${actor.model.name}` }))}
+              activeActorId={activeActorId()}
+              onSelect={handleModelSelect}
+              onAdd={(model) => void addModel(model)}
+              onDeleteActive={handleDeleteActive}
+              onActiveActorChange={handleActiveActorChange}
+              onDragStart={handleDockDragStart}
+            />
+
+            <ActionPanel
+              model={activeActor()?.model ?? selectedModel()}
+              disabled={!canControlMotion()}
+              timeScale={timeScale()}
+              sizeScale={sizeScale()}
+              rotation={rotation()}
+              mirrorEnabled={mirrorEnabled()}
+              shadowEnabled={shadowEnabled()}
+              exportingGif={exportingGif()}
+              onPlay={handlePlay}
+              onStop={handleStop}
+              onTimeScaleChange={handleTimeScaleChange}
+              onSizeScaleChange={handleSizeScaleChange}
+              onRotationChange={handleRotationChange}
+              onMirrorToggle={handleMirrorToggle}
+              onShadowToggle={handleShadowToggle}
+              onResetTransform={handleResetTransform}
+              onDownloadPng={handleDownloadPng}
+              onDownloadGif={(action, loop) => void handleDownloadGif(action, loop)}
+            />
+          </div>
         </aside>
       </main>
     </div>

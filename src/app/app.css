@@ -146,14 +146,50 @@ input:focus-visible {
   width: min(292px, calc(100vw - 40px));
   max-height: min(560px, calc(100dvh - 90px));
   gap: 12px;
-  padding: 12px;
-  overflow: auto;
+  padding: 0 12px 12px;
+  overflow: visible;
   overscroll-behavior: contain;
   border: 1px solid rgba(255, 255, 255, 0.08);
   border-radius: 12px;
   background: rgba(28, 29, 33, 0.96);
   transform: translate(var(--dock-offset-x, 0px), calc(-50% + var(--dock-offset-y, 0px)));
   -webkit-overflow-scrolling: touch;
+}
+
+.control-dock-scroll {
+  display: grid;
+  gap: 12px;
+  max-height: calc(min(560px, calc(100dvh - 90px)) - 92px);
+  padding-top: 0;
+  overflow: auto;
+  overscroll-behavior: contain;
+  -webkit-overflow-scrolling: touch;
+}
+
+.control-banner {
+  display: block;
+  height: auto;
+}
+
+.control-banner-shell {
+  position: relative;
+  width: 100%;
+  margin-bottom: 2px;
+}
+
+.control-banner-bg {
+  width: 100%;
+  border-radius: 8px;
+  object-fit: cover;
+}
+
+.control-banner-right {
+  position: absolute;
+  right: -23px;
+  bottom: -20px;
+  width: 53%;
+  max-width: 170px;
+  pointer-events: none;
 }
 
 .control-section {
@@ -353,10 +389,21 @@ input:focus-visible {
     max-height: min(42dvh, 420px);
     grid-template-columns: 1fr 1fr;
     align-self: end;
-    padding: 10px 10px max(12px, env(safe-area-inset-bottom));
-    overflow: auto;
+    padding: 0 10px max(12px, env(safe-area-inset-bottom));
+    overflow: visible;
     border-radius: 10px;
     transform: none;
+  }
+
+  .control-dock-scroll {
+    max-height: calc(min(42dvh, 420px) - 88px);
+  }
+
+  .control-banner-right {
+    right: -4px;
+    bottom: -8px;
+    width: 56%;
+    max-width: 190px;
   }
 
   .drag-handle {
@@ -410,6 +457,10 @@ input:focus-visible {
     grid-template-columns: 1fr;
     gap: 14px;
     max-height: 44dvh;
+  }
+
+  .control-dock-scroll {
+    max-height: calc(44dvh - 88px);
   }
 
   .control-section + .control-section {
