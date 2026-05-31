@@ -1,5 +1,5 @@
 import { createMemo, createSignal, onCleanup } from 'solid-js';
-import { GIFEncoder, applyPalette, quantize } from 'gifenc';
+import { Call, buildInputFile, type MagickInputFile } from 'wasm-imagemagick';
 
 import { clampTimeScale, composePlayCommand, composeStopCommand } from '@/actions/actionComposer';
 import { areaSdDefaultModelId, sampleManifest } from '@/data/sampleManifest';
@@ -31,12 +31,8 @@ const firstModel = (): ModelDefinition => {
 const toErrorMessage = (error: unknown): string =>
   error instanceof Error ? error.message : 'Unknown runtime error.';
 
+const GIF_EXPORT_DURATION_MS = 3000;
 const GIF_EXPORT_FPS = 30;
-const GIF_EXPORT_FALLBACK_SECONDS = 2.5;
-const GIF_EXPORT_MAX_SECONDS = 4;
-const GIF_EXPORT_MAX_FRAMES = 120;
-const GIF_EXPORT_MAX_SIDE = 320;
-const GIF_EXPORT_COLORS = 256;
 
 const pad = (value: number): string => value.toString().padStart(2, '0');
 
@@ -97,71 +93,45 @@ const composeStageSnapshot = (): HTMLCanvasElement | undefined => {
   return output;
 };
 
-const resizeCanvasForGif = (canvas: HTMLCanvasElement): HTMLCanvasElement => {
-  const longestSide = Math.max(canvas.width, canvas.height);
+const canvasToPngBlob = async (canvas: HTMLCanvasElement): Promise<Blob> =>
+  new Promise((resolve, reject) => {
+    canvas.toBlob((blob) => {
+      if (blob) {
+        resolve(blob);
+        return;
+      }
 
-  if (longestSide <= GIF_EXPORT_MAX_SIDE) {
-    return canvas;
+      reject(new Error('Cannot encode PNG frame.'));
+    }, 'image/png');
+  });
+
+const buildFrameInputFile = async (canvas: HTMLCanvasElement, index: number): Promise<MagickInputFile> => {
+  const blob = await canvasToPngBlob(canvas);
+  const url = URL.createObjectURL(blob);
+
+  try {
+    return await buildInputFile(url, `f${index.toString().padStart(4, '0')}.png`);
+  } finally {
+    URL.revokeObjectURL(url);
   }
-
-  const scale = GIF_EXPORT_MAX_SIDE / longestSide;
-  const output = document.createElement('canvas');
-
-  output.width = Math.max(1, Math.round(canvas.width * scale));
-  output.height = Math.max(1, Math.round(canvas.height * scale));
-
-  const context = output.getContext('2d');
-
-  if (!context) {
-    return canvas;
-  }
-
-  context.imageSmoothingEnabled = true;
-  context.imageSmoothingQuality = 'high';
-  context.drawImage(canvas, 0, 0, output.width, output.height);
-
-  return output;
 };
 
-const readCanvasImageData = (canvas: HTMLCanvasElement): ImageData | undefined => {
-  const context = canvas.getContext('2d', { willReadFrequently: true });
-
-  return context?.getImageData(0, 0, canvas.width, canvas.height);
-};
-
-const encodeGif = (frames: readonly ImageData[]): Blob => {
-  const firstFrame = frames[0];
-
-  if (!firstFrame) {
-    throw new Error('No GIF frames were captured.');
-  }
-
-  const gif = GIFEncoder();
-  const delay = Math.round(1000 / GIF_EXPORT_FPS);
-
-  for (const [index, frame] of frames.entries()) {
-    const palette = quantize(frame.data, GIF_EXPORT_COLORS, { format: 'rgba4444', oneBitAlpha: 16 });
-    const indexedFrame = applyPalette(frame.data, palette, 'rgba4444');
-    const options = {
-      palette,
-      delay,
-      transparent: true,
-      transparentIndex: 0,
-      ...(index === 0 ? { repeat: 0 } : {}),
-    };
-
-    gif.writeFrame(indexedFrame, frame.width, frame.height, options);
-  }
-
-  gif.finish();
-  const bytes = gif.bytes();
-  const output = new ArrayBuffer(bytes.byteLength);
-  const outputBytes = new Uint8Array(output);
-
-  outputBytes.set(bytes);
-
-  return new Blob([output], { type: 'image/gif' });
-};
+const buildGifCommand = (frames: readonly MagickInputFile[]): string[] => [
+  'convert',
+  '-dispose',
+  'Background',
+  '-delay',
+  `1x${GIF_EXPORT_FPS}`,
+  ...frames.map((frame) => frame.name),
+  '-layers',
+  'TrimBounds',
+  '+remap',
+  '-channel',
+  'A',
+  '-ordered-dither',
+  '2x2',
+  'animated.gif',
+];
 
 export const App = () => {
   const initialModel = firstModel();
@@ -185,19 +155,52 @@ export const App = () => {
   const activeActor = createMemo(() => actors().find((actor) => actor.id === activeActorId()));
   let nextActorNumber = 1;
   let dragOrigin: { pointerX: number; pointerY: number; offsetX: number; offsetY: number } | undefined;
+  let pendingDockOffset: { x: number; y: number } | undefined;
+  let dockDragFrame = 0;
+
+  const flushDockOffset = (): void => {
+    dockDragFrame = 0;
+
+    if (!pendingDockOffset) {
+      return;
+    }
+
+    setDockOffset(pendingDockOffset);
+    pendingDockOffset = undefined;
+  };
+
+  const scheduleDockOffset = (x: number, y: number): void => {
+    pendingDockOffset = { x, y };
+
+    if (dockDragFrame !== 0) {
+      return;
+    }
+
+    dockDragFrame = window.requestAnimationFrame(flushDockOffset);
+  };
 
   const handleDockDragMove = (event: PointerEvent): void => {
     if (!dragOrigin) {
       return;
     }
 
-    setDockOffset({
-      x: dragOrigin.offsetX + event.clientX - dragOrigin.pointerX,
-      y: dragOrigin.offsetY + event.clientY - dragOrigin.pointerY,
-    });
+    scheduleDockOffset(
+      dragOrigin.offsetX + event.clientX - dragOrigin.pointerX,
+      dragOrigin.offsetY + event.clientY - dragOrigin.pointerY,
+    );
   };
 
   const handleDockDragEnd = (): void => {
+    if (dockDragFrame !== 0) {
+      window.cancelAnimationFrame(dockDragFrame);
+      dockDragFrame = 0;
+    }
+
+    if (pendingDockOffset) {
+      setDockOffset(pendingDockOffset);
+      pendingDockOffset = undefined;
+    }
+
     dragOrigin = undefined;
     window.removeEventListener('pointermove', handleDockDragMove);
     window.removeEventListener('pointerup', handleDockDragEnd);
@@ -223,6 +226,12 @@ export const App = () => {
   };
 
   onCleanup(() => {
+    if (dockDragFrame !== 0) {
+      window.cancelAnimationFrame(dockDragFrame);
+      dockDragFrame = 0;
+    }
+
+    pendingDockOffset = undefined;
     window.removeEventListener('pointermove', handleDockDragMove);
     window.removeEventListener('pointerup', handleDockDragEnd);
   });
@@ -449,18 +458,13 @@ export const App = () => {
     }
 
     const frameDelta = 1 / GIF_EXPORT_FPS;
-    const animationSeconds = action ? stage.readActiveAnimationDuration(action.animation) : undefined;
-    const boundedSeconds = Math.min(
-      GIF_EXPORT_MAX_SECONDS,
-      Math.max(frameDelta, animationSeconds ?? GIF_EXPORT_FALLBACK_SECONDS),
-    );
-    const totalFrames = Math.min(GIF_EXPORT_MAX_FRAMES, Math.max(1, Math.ceil(boundedSeconds * GIF_EXPORT_FPS)));
+    const totalFrames = Math.max(1, Math.round((GIF_EXPORT_DURATION_MS / 1000) * GIF_EXPORT_FPS));
 
     setExportingGif(true);
-    setMessage(`Rendering GIF frame 1/${totalFrames}...`);
+    setMessage('Rendering GIF frames...');
 
     try {
-      const frames: ImageData[] = [];
+      const frameFiles: MagickInputFile[] = [];
 
       stage.setPaused(true);
 
@@ -477,33 +481,27 @@ export const App = () => {
           continue;
         }
 
-        const imageData = readCanvasImageData(resizeCanvasForGif(frame));
+        frameFiles.push(await buildFrameInputFile(frame, index));
 
-        if (imageData) {
-          frames.push(imageData);
-        }
-
-        if (index % 5 === 0 || index === totalFrames - 1) {
-          setMessage(`Rendering GIF frame ${Math.min(index + 2, totalFrames)}/${totalFrames}...`);
+        if (index % 10 === 0) {
           await new Promise<void>((resolve) => window.setTimeout(resolve, 0));
         }
       }
 
-      if (frames.length === 0) {
+      if (frameFiles.length === 0) {
         throw new Error('No GIF frames were captured.');
       }
 
-      if (action) {
-        stage.executeActive(composePlayCommand(action, timeScale(), loop));
+      setMessage('Encoding GIF...');
+
+      const outputFiles = await Call(frameFiles, buildGifCommand(frameFiles));
+      const outputFile = outputFiles.find((file) => file.name === 'animated.gif') ?? outputFiles[0];
+
+      if (!outputFile) {
+        throw new Error('GIF encoder returned no output.');
       }
 
-      stage.captureFrame(0);
-      stage.setPaused(false);
-      setMessage('Encoding GIF...');
-      await new Promise<void>((resolve) => window.setTimeout(resolve, 0));
-
-      const blob = encodeGif(frames);
-      const url = URL.createObjectURL(blob);
+      const url = URL.createObjectURL(outputFile.blob);
 
       try {
         triggerDownload(url, buildDownloadName('gif'));

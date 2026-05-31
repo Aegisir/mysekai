@@ -190,10 +190,6 @@ class SpineLegacyModelInstance implements RuntimeModelInstance {
     );
   }
 
-  readAnimationDuration(animation: string): number | undefined {
-    return this.spine.spineData.animations.find((candidate) => candidate.name === animation)?.duration;
-  }
-
   captureFrame(deltaSeconds: number): void {
     this.renderFrame(deltaSeconds);
   }
