@@ -6,6 +6,7 @@ import { fileURLToPath } from 'node:url';
 const srcPath = fileURLToPath(new URL('./src', import.meta.url));
 
 export default defineConfig({
+  base: process.env.GITHUB_ACTIONS ? '/mysekai/' : '/',
   plugins: [solid()],
   resolve: {
     alias: {
