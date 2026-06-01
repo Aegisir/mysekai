@@ -1,8 +1,10 @@
 import type { ActionId } from '@/domain/ids';
 import type { ActionDefinition, ModelDefinition } from '@/domain/manifest';
 import type { PlayAnimationCommand, RuntimeCommand, StopAnimationCommand } from '@/runtime/types';
+import { clampEditorValue, EDITOR_CONTROL_LIMITS } from '@/shared/editorLimits';
 
-export const clampTimeScale = (value: number): number => Math.min(Math.max(value, 0.1), 4);
+export const clampTimeScale = (value: number): number =>
+  clampEditorValue(value, EDITOR_CONTROL_LIMITS.timeScale);
 
 export const findAction = (
   model: ModelDefinition,

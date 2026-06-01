@@ -7,13 +7,13 @@ interface ModelPanelProps {
   readonly characters: readonly CharacterDefinition[];
   readonly selectedModelId: ModelId;
   readonly disabled: boolean;
+  readonly active: boolean;
   readonly actors: readonly { id: string; label: string }[];
   readonly activeActorId: string | undefined;
   readonly onSelect: (model: ModelDefinition) => void;
   readonly onAdd: (model: ModelDefinition) => void;
   readonly onDeleteActive: () => void;
   readonly onActiveActorChange: (actorId: string) => void;
-  readonly onDragStart?: (event: PointerEvent) => void;
 }
 
 const findModel = (
@@ -91,17 +91,15 @@ export const ModelPanel = (props: ModelPanelProps) => {
   };
 
   return (
-    <section class="control-section" aria-labelledby="model-panel-title">
+    <section
+      class="control-section editor-panel"
+      classList={{ 'is-active': props.active }}
+      hidden={!props.active}
+      aria-hidden={props.active ? 'false' : 'true'}
+      aria-labelledby="model-panel-title"
+    >
       <div class="section-heading">
         <h2 id="model-panel-title">Character</h2>
-        <button
-          class="drag-handle"
-          type="button"
-          aria-label="Drag character panel"
-          onPointerDown={(event) => props.onDragStart?.(event as PointerEvent)}
-        >
-          ≡
-        </button>
       </div>
 
       <label class="field">

@@ -21,6 +21,7 @@ import type { ActionDefinition, ModelDefinition, RuntimeKind } from '@/domain/ma
 import type { RuntimeAdapter, RuntimeCommand, RuntimeLoadContext, RuntimeModelInstance, StageSize } from '@/runtime/types';
 import { pickRenderQuality } from '@/renderer/renderQuality';
 import { loadBinary, loadImage, loadText } from '@/runtime/spineLegacy/areaSdLoader';
+import { clampEditorValue, EDITOR_CONTROL_LIMITS } from '@/shared/editorLimits';
 import { installPjsekBinaryPatch } from '@/runtime/spineLegacy/legacyBinaryPatch';
 
 type LegacyApplication = Application;
@@ -162,7 +163,7 @@ class SpineLegacyModelInstance implements RuntimeModelInstance {
   }
 
   setCharacterScale(scale: number): void {
-    this.characterScale = Math.max(0.2, Math.min(3, scale));
+    this.characterScale = clampEditorValue(scale, EDITOR_CONTROL_LIMITS.sizeScale);
     this.layout({ width: this.app.renderer.width, height: this.app.renderer.height });
     this.renderFrame(0);
   }

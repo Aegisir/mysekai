@@ -10,6 +10,7 @@ import type {
   StageSize,
 } from '@/runtime/types';
 import { createPixiApp, type PixiApp } from '@/renderer/createPixiApp';
+import { clampEditorValue, EDITOR_CONTROL_LIMITS } from '@/shared/editorLimits';
 
 type SpinePixiModelDefinition = Extract<ModelDefinition, { readonly runtime: 'spine-pixi-v8' }>;
 
@@ -96,7 +97,7 @@ class SpineModelInstance implements RuntimeModelInstance {
   }
 
   setCharacterScale(scale: number): void {
-    this.characterScale = Math.max(0.2, Math.min(3, scale));
+    this.characterScale = clampEditorValue(scale, EDITOR_CONTROL_LIMITS.sizeScale);
     this.layout({ width: this.app.renderer.width, height: this.app.renderer.height });
   }
 

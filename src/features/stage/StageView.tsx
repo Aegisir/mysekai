@@ -1,6 +1,7 @@
 import { onCleanup, onMount } from 'solid-js';
 
 import type { StageController } from '@/renderer/StageController';
+import { isCoarsePointer } from '@/shared/device';
 
 interface StageViewProps {
   readonly onReady: (controller: StageController) => void;
@@ -23,8 +24,6 @@ interface DragStart {
 const POINTER_DRAG_THRESHOLD = 3;
 const TOUCH_DRAG_THRESHOLD = 7;
 const TOUCH_HIT_RADIUS = 26;
-
-const isCoarsePointer = (): boolean => globalThis.matchMedia?.('(pointer: coarse)').matches ?? false;
 
 export const StageView = (props: StageViewProps) => {
   let host!: HTMLDivElement;

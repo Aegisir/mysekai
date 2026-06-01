@@ -1,10 +1,10 @@
+import { isCoarsePointer } from '@/shared/device';
+
 export interface RenderQuality {
   readonly resolution: number;
   readonly maxFps: number;
   readonly antialias: boolean;
 }
-
-const isCoarsePointer = (): boolean => globalThis.matchMedia?.('(pointer: coarse)').matches ?? false;
 
 export const pickRenderQuality = (): RenderQuality => {
   const rawDpr = globalThis.devicePixelRatio || 1;

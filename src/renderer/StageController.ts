@@ -2,13 +2,19 @@ import { composeDefaultCommands } from '@/actions/actionComposer';
 import type { ModelDefinition } from '@/domain/manifest';
 import { createRuntimeRegistry, type RuntimeRegistry } from '@/runtime/registry';
 import type { RuntimeCommand, RuntimeModelInstance, StageSize } from '@/runtime/types';
+import { clampEditorValue, EDITOR_CONTROL_LIMITS } from '@/shared/editorLimits';
+
+interface StageActorRuntimeState {
+  readonly instance: RuntimeModelInstance;
+  offset: { readonly x: number; readonly y: number };
+  scale: number;
+  rotation: number;
+  mirror: boolean;
+  shadow: boolean;
+}
 
 export class StageController {
-  private readonly instances: RuntimeModelInstance[] = [];
-  private readonly characterOffsets: { x: number; y: number }[] = [];
-  private readonly characterScales: number[] = [];
-  private readonly characterRotations: number[] = [];
-  private readonly characterMirrors: boolean[] = [];
+  private readonly actors: StageActorRuntimeState[] = [];
   private activeIndex = -1;
   private readonly resizeObserver: ResizeObserver;
   private loadToken = 0;
@@ -45,21 +51,18 @@ export class StageController {
       return;
     }
 
-    this.instances.push(instance);
-    this.characterOffsets.push({ x: 0, y: 0 });
-    this.characterScales.push(1);
-    this.characterRotations.push(0);
-    this.characterMirrors.push(false);
-    this.activeIndex = this.instances.length - 1;
-    const offset = this.characterOffsets[this.activeIndex] ?? { x: 0, y: 0 };
-    const scale = this.characterScales[this.activeIndex] ?? 1;
-    const rotation = this.characterRotations[this.activeIndex] ?? 0;
-    const mirror = this.characterMirrors[this.activeIndex] ?? false;
+    const actor: StageActorRuntimeState = {
+      instance,
+      offset: { x: 0, y: 0 },
+      scale: 1,
+      rotation: 0,
+      mirror: false,
+      shadow: true,
+    };
 
-    instance.setCharacterOffset(offset.x, offset.y);
-    instance.setCharacterScale(scale);
-    instance.setCharacterRotation(rotation);
-    instance.setCharacterMirror(mirror);
+    this.actors.push(actor);
+    this.activeIndex = this.actors.length - 1;
+    this.applyActorState(actor);
 
     for (const command of composeDefaultCommands(model)) {
       instance.execute(command);
@@ -70,80 +73,87 @@ export class StageController {
     this.readActiveInstance()?.execute(command);
   }
 
-  setGlobalTimeScale(value: number): void {
-    this.readActiveInstance()?.setTimeScale(value);
+  setActiveTimeScale(value: number): void {
+    this.readActiveInstance()?.setTimeScale(clampEditorValue(value, EDITOR_CONTROL_LIMITS.timeScale));
   }
 
   setCharacterShadow(enabled: boolean): void {
-    this.readActiveInstance()?.setCharacterShadow(enabled);
+    const actor = this.readActiveActor();
+
+    if (!actor) {
+      return;
+    }
+
+    actor.shadow = enabled;
+    actor.instance.setCharacterShadow(enabled);
   }
 
   setCharacterOffset(x: number, y: number): void {
-    if (this.activeIndex < 0 || this.activeIndex >= this.characterOffsets.length) {
+    const actor = this.readActiveActor();
+
+    if (!actor) {
       return;
     }
 
-    this.characterOffsets[this.activeIndex] = { x, y };
-    this.readActiveInstance()?.setCharacterOffset(x, y);
+    actor.offset = { x, y };
+    actor.instance.setCharacterOffset(x, y);
   }
 
   setCharacterScale(scale: number): void {
-    if (this.activeIndex < 0 || this.activeIndex >= this.characterScales.length) {
+    const actor = this.readActiveActor();
+
+    if (!actor) {
       return;
     }
 
-    this.characterScales[this.activeIndex] = scale;
-    this.readActiveInstance()?.setCharacterScale(scale);
+    const nextScale = clampEditorValue(scale, EDITOR_CONTROL_LIMITS.sizeScale);
+
+    actor.scale = nextScale;
+    actor.instance.setCharacterScale(nextScale);
   }
 
   setCharacterRotation(degrees: number): void {
-    if (this.activeIndex < 0 || this.activeIndex >= this.characterRotations.length) {
+    const actor = this.readActiveActor();
+
+    if (!actor) {
       return;
     }
 
-    this.characterRotations[this.activeIndex] = degrees;
-    this.readActiveInstance()?.setCharacterRotation(degrees);
+    const nextRotation = clampEditorValue(degrees, EDITOR_CONTROL_LIMITS.rotation);
+
+    actor.rotation = nextRotation;
+    actor.instance.setCharacterRotation(nextRotation);
   }
 
   setCharacterMirror(enabled: boolean): void {
-    if (this.activeIndex < 0 || this.activeIndex >= this.characterMirrors.length) {
+    const actor = this.readActiveActor();
+
+    if (!actor) {
       return;
     }
 
-    this.characterMirrors[this.activeIndex] = enabled;
-    this.readActiveInstance()?.setCharacterMirror(enabled);
+    actor.mirror = enabled;
+    actor.instance.setCharacterMirror(enabled);
   }
 
   readCharacterOffset(): { readonly x: number; readonly y: number } {
-    if (this.activeIndex < 0 || this.activeIndex >= this.characterOffsets.length) {
-      return { x: 0, y: 0 };
-    }
-
-    return this.characterOffsets[this.activeIndex] ?? { x: 0, y: 0 };
+    return this.readActiveActor()?.offset ?? { x: 0, y: 0 };
   }
 
   readCharacterRotation(): number {
-    if (this.activeIndex < 0 || this.activeIndex >= this.characterRotations.length) {
-      return 0;
-    }
-
-    return this.characterRotations[this.activeIndex] ?? 0;
+    return this.readActiveActor()?.rotation ?? 0;
   }
 
   readCharacterScale(): number {
-    if (this.activeIndex < 0 || this.activeIndex >= this.characterScales.length) {
-      return 1;
-    }
-
-    return this.characterScales[this.activeIndex] ?? 1;
+    return this.readActiveActor()?.scale ?? 1;
   }
 
   readCharacterMirror(): boolean {
-    if (this.activeIndex < 0 || this.activeIndex >= this.characterMirrors.length) {
-      return false;
-    }
+    return this.readActiveActor()?.mirror ?? false;
+  }
 
-    return this.characterMirrors[this.activeIndex] ?? false;
+  readCharacterShadow(): boolean {
+    return this.readActiveActor()?.shadow ?? true;
   }
 
   canDragActiveCharacterAt(x: number, y: number): boolean {
@@ -155,14 +165,14 @@ export class StageController {
   }
 
   captureFrame(deltaSeconds: number): void {
-    for (const instance of this.instances) {
-      instance.captureFrame(deltaSeconds);
+    for (const actor of this.actors) {
+      actor.instance.captureFrame(deltaSeconds);
     }
   }
 
   setPaused(paused: boolean): void {
-    for (const instance of this.instances) {
-      instance.setPaused(paused);
+    for (const actor of this.actors) {
+      actor.instance.setPaused(paused);
     }
   }
 
@@ -178,10 +188,10 @@ export class StageController {
           ]
         : [{ x, y }];
 
-    for (let index = this.instances.length - 1; index >= 0; index -= 1) {
-      const instance = this.instances[index];
+    for (let index = this.actors.length - 1; index >= 0; index -= 1) {
+      const actor = this.actors[index];
 
-      if (instance && points.some((point) => instance.canDragCharacterAt(point.x, point.y))) {
+      if (actor && points.some((point) => actor.instance.canDragCharacterAt(point.x, point.y))) {
         this.activeIndex = index;
         return index;
       }
@@ -195,11 +205,11 @@ export class StageController {
   }
 
   readInstanceCount(): number {
-    return this.instances.length;
+    return this.actors.length;
   }
 
   setActiveIndex(index: number): void {
-    if (index < 0 || index >= this.instances.length) {
+    if (index < 0 || index >= this.actors.length) {
       return;
     }
 
@@ -214,18 +224,14 @@ export class StageController {
     }
 
     active.destroy();
-    this.instances.splice(this.activeIndex, 1);
-    this.characterOffsets.splice(this.activeIndex, 1);
-    this.characterScales.splice(this.activeIndex, 1);
-    this.characterRotations.splice(this.activeIndex, 1);
-    this.characterMirrors.splice(this.activeIndex, 1);
+    this.actors.splice(this.activeIndex, 1);
 
-    if (this.instances.length === 0) {
+    if (this.actors.length === 0) {
       this.activeIndex = -1;
       return;
     }
 
-    this.activeIndex = Math.min(this.activeIndex, this.instances.length - 1);
+    this.activeIndex = Math.min(this.activeIndex, this.actors.length - 1);
   }
 
   destroy(): void {
@@ -241,16 +247,16 @@ export class StageController {
   }
 
   private readonly handleVisibilityChange = (): void => {
-    for (const instance of this.instances) {
-      instance.setPaused(document.hidden);
+    for (const actor of this.actors) {
+      actor.instance.setPaused(document.hidden);
     }
   };
 
   private resize(): void {
     const size = this.readSize();
 
-    for (const instance of this.instances) {
-      instance.resize(size);
+    for (const actor of this.actors) {
+      actor.instance.resize(size);
     }
   }
 
@@ -263,25 +269,33 @@ export class StageController {
     };
   }
 
-  private clearActiveInstance(): void {
-    while (this.instances.length > 0) {
-      const instance = this.instances.pop();
+  private applyActorState(actor: StageActorRuntimeState): void {
+    actor.instance.setCharacterOffset(actor.offset.x, actor.offset.y);
+    actor.instance.setCharacterScale(actor.scale);
+    actor.instance.setCharacterRotation(actor.rotation);
+    actor.instance.setCharacterMirror(actor.mirror);
+    actor.instance.setCharacterShadow(actor.shadow);
+  }
 
-      instance?.destroy();
+  private clearActiveInstance(): void {
+    while (this.actors.length > 0) {
+      const actor = this.actors.pop();
+
+      actor?.instance.destroy();
     }
 
     this.activeIndex = -1;
-    this.characterOffsets.length = 0;
-    this.characterScales.length = 0;
-    this.characterRotations.length = 0;
-    this.characterMirrors.length = 0;
   }
 
   private readActiveInstance(): RuntimeModelInstance | undefined {
-    if (this.activeIndex < 0 || this.activeIndex >= this.instances.length) {
+    return this.readActiveActor()?.instance;
+  }
+
+  private readActiveActor(): StageActorRuntimeState | undefined {
+    if (this.activeIndex < 0 || this.activeIndex >= this.actors.length) {
       return undefined;
     }
 
-    return this.instances[this.activeIndex];
+    return this.actors[this.activeIndex];
   }
 }

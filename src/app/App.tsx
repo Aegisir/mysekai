@@ -5,9 +5,22 @@ import { clampTimeScale, composePlayCommand, composeStopCommand } from '@/action
 import { areaSdDefaultModelId, sampleManifest } from '@/data/sampleManifest';
 import type { ActionDefinition, ModelDefinition } from '@/domain/manifest';
 import { ActionPanel } from '@/features/controls/ActionPanel';
+import { CanvasPanel } from '@/features/controls/CanvasPanel';
 import { ModelPanel } from '@/features/controls/ModelPanel';
+import {
+  DEFAULT_CUSTOM_CANVAS_RATIO,
+  formatCanvasAspectRatio,
+  normalizeCanvasAspectRatio,
+  resolveCanvasAspectRatio,
+  toCssAspectRatio,
+  type CanvasAspectRatio,
+  type CanvasPresetId,
+} from '@/features/canvas/canvasPresets';
+import { EditorToolbar } from '@/features/editor/EditorToolbar';
+import { readEditorToolLabel, type EditorToolId } from '@/features/editor/editorTools';
 import { StageView } from '@/features/stage/StageView';
 import type { StageController } from '@/renderer/StageController';
+import { clampEditorValue, EDITOR_CONTROL_LIMITS } from '@/shared/editorLimits';
 
 import './app.css';
 
@@ -178,11 +191,33 @@ export const App = () => {
   const [actors, setActors] = createSignal<readonly ActorEntry[]>([]);
   const [activeActorId, setActiveActorId] = createSignal<string | undefined>();
   const [exportingGif, setExportingGif] = createSignal(false);
+  const [activeTool, setActiveTool] = createSignal<EditorToolId>('character');
+  const [controlsVisible, setControlsVisible] = createSignal(true);
+  const [canvasPresetId, setCanvasPresetId] = createSignal<CanvasPresetId>('original');
+  const [customCanvasRatio, setCustomCanvasRatio] = createSignal<CanvasAspectRatio>(
+    DEFAULT_CUSTOM_CANVAS_RATIO,
+  );
   const canUseStage = createMemo(() => Boolean(controller()) && status() !== 'loading');
   const canControlMotion = createMemo(
     () => Boolean(controller()) && status() === 'ready' && Boolean(activeActorId()),
   );
   const activeActor = createMemo(() => actors().find((actor) => actor.id === activeActorId()));
+  const canvasAspectRatio = createMemo(() => resolveCanvasAspectRatio(canvasPresetId(), customCanvasRatio()));
+  const isCanvasTall = createMemo(() => {
+    const ratio = canvasAspectRatio();
+
+    return Boolean(ratio && ratio.height > ratio.width);
+  });
+  const canvasStageStyle = createMemo(() => {
+    const ratio = canvasAspectRatio();
+
+    return ratio
+      ? {
+          '--canvas-aspect-ratio': toCssAspectRatio(ratio),
+          '--canvas-aspect-value': `${ratio.width / ratio.height}`,
+        }
+      : {};
+  });
   let nextActorNumber = 1;
   let dragOrigin: { pointerX: number; pointerY: number; offsetX: number; offsetY: number } | undefined;
   let pendingDockOffset: { x: number; y: number } | undefined;
@@ -266,6 +301,62 @@ export const App = () => {
     window.removeEventListener('pointerup', handleDockDragEnd);
   });
 
+  const syncActiveActorFromIndex = (index: number, nextActors = actors()): boolean => {
+    const stage = controller();
+    const actor = nextActors[index];
+
+    if (!stage || !actor || index < 0 || index >= nextActors.length) {
+      return false;
+    }
+
+    stage.setActiveIndex(index);
+    setActiveActorId(actor.id);
+    setSizeScale(stage.readCharacterScale());
+    setRotation(stage.readCharacterRotation());
+    setMirrorEnabled(stage.readCharacterMirror());
+    setShadowEnabled(stage.readCharacterShadow());
+    setMessage(`Active: ${actor.model.name}`);
+
+    return true;
+  };
+
+  const handleEditorToolSelect = (toolId: EditorToolId): void => {
+    if (toolId !== 'character' && toolId !== 'canvas' && !activeActorId()) {
+      setMessage('Add a character before using this tool.');
+      setActiveTool('character');
+      setControlsVisible(true);
+      return;
+    }
+
+    setActiveTool(toolId);
+    setControlsVisible(true);
+    setMessage(`${readEditorToolLabel(toolId)} tools selected.`);
+  };
+
+  const handleControlsToggle = (): void => {
+    setControlsVisible((visible) => !visible);
+  };
+
+  const handleCanvasPresetChange = (presetId: CanvasPresetId): void => {
+    const nextRatio = resolveCanvasAspectRatio(presetId, customCanvasRatio());
+
+    setCanvasPresetId(presetId);
+    setMessage(`Canvas ratio: ${formatCanvasAspectRatio(nextRatio)}.`);
+  };
+
+  const handleCustomCanvasRatioChange = (ratio: CanvasAspectRatio): void => {
+    const nextRatio = normalizeCanvasAspectRatio(ratio);
+
+    setCustomCanvasRatio(nextRatio);
+    setMessage(`Canvas ratio: ${formatCanvasAspectRatio(nextRatio)}.`);
+  };
+
+  const handleCanvasReset = (): void => {
+    setCanvasPresetId('original');
+    setCustomCanvasRatio(DEFAULT_CUSTOM_CANVAS_RATIO);
+    setMessage('Canvas ratio reset to Original.');
+  };
+
   const addModel = async (model: ModelDefinition): Promise<void> => {
     const stage = controller();
 
@@ -280,7 +371,7 @@ export const App = () => {
     try {
       await stage.loadModel(model);
       stage.setCharacterShadow(shadowEnabled());
-      stage.setGlobalTimeScale(timeScale());
+      stage.setActiveTimeScale(timeScale());
       stage.setCharacterScale(1);
       stage.setCharacterRotation(0);
       stage.setCharacterMirror(false);
@@ -289,6 +380,11 @@ export const App = () => {
 
       setActors(nextActors);
       setActiveActorId(actorId);
+      setSizeScale(stage.readCharacterScale());
+      setRotation(stage.readCharacterRotation());
+      setMirrorEnabled(stage.readCharacterMirror());
+      setShadowEnabled(stage.readCharacterShadow());
+      setControlsVisible(true);
       setStatus('ready');
       setMessage(`Added: ${model.name}`);
     } catch (error) {
@@ -331,76 +427,39 @@ export const App = () => {
 
     if (nextActors.length === 0) {
       setActiveActorId(undefined);
+      setActiveTool('character');
+      setSizeScale(1);
+      setRotation(0);
+      setMirrorEnabled(false);
+      setShadowEnabled(true);
       setStatus('idle');
       setMessage('No characters on stage. Add one.');
       return;
     }
 
     const nextIndex = Math.min(removeIndex, nextActors.length - 1);
-    const nextActor = nextActors[nextIndex];
 
-    if (!nextActor) {
+    if (!syncActiveActorFromIndex(nextIndex, nextActors)) {
       setActiveActorId(undefined);
+      setActiveTool('character');
       setStatus('idle');
       setMessage('No characters on stage. Add one.');
-      return;
     }
-
-    stage.setActiveIndex(nextIndex);
-    setActiveActorId(nextActor.id);
-    setSizeScale(stage.readCharacterScale());
-    setRotation(stage.readCharacterRotation());
-    setMirrorEnabled(stage.readCharacterMirror());
-    setMessage(`Active: ${nextActor.model.name}`);
   };
 
   const handleActiveActorChange = (actorId: string): void => {
-    const stage = controller();
     const index = actors().findIndex((actor) => actor.id === actorId);
 
-    if (!stage || index < 0) {
-      return;
-    }
-
-    const actor = actors()[index];
-
-    if (!actor) {
-      return;
-    }
-
-    stage.setActiveIndex(index);
-    setActiveActorId(actorId);
-    setSizeScale(stage.readCharacterScale());
-    setRotation(stage.readCharacterRotation());
-    setMirrorEnabled(stage.readCharacterMirror());
-    setMessage(`Active: ${actor.model.name}`);
+    syncActiveActorFromIndex(index);
   };
 
   const handleActiveIndexChange = (index: number): void => {
-    const stage = controller();
-    const nextActors = actors();
-
-    if (!stage || index < 0 || index >= nextActors.length) {
-      return;
-    }
-
-    const actor = nextActors[index];
-
-    if (!actor) {
-      return;
-    }
-
-    stage.setActiveIndex(index);
-    setActiveActorId(actor.id);
-    setSizeScale(stage.readCharacterScale());
-    setRotation(stage.readCharacterRotation());
-    setMirrorEnabled(stage.readCharacterMirror());
-    setMessage(`Active: ${actor.model.name}`);
+    syncActiveActorFromIndex(index);
   };
 
   const handleRotationChange = (degrees: number): void => {
     const stage = controller();
-    const next = Math.max(-180, Math.min(180, degrees));
+    const next = clampEditorValue(degrees, EDITOR_CONTROL_LIMITS.rotation);
 
     setRotation(next);
     stage?.setCharacterRotation(next);
@@ -408,7 +467,7 @@ export const App = () => {
 
   const handleSizeScaleChange = (value: number): void => {
     const stage = controller();
-    const next = Math.max(0.2, Math.min(3, value));
+    const next = clampEditorValue(value, EDITOR_CONTROL_LIMITS.sizeScale);
 
     setSizeScale(next);
     stage?.setCharacterScale(next);
@@ -448,7 +507,7 @@ export const App = () => {
     const nextValue = clampTimeScale(value);
 
     setTimeScale(nextValue);
-    controller()?.setGlobalTimeScale(nextValue);
+    controller()?.setActiveTimeScale(nextValue);
   };
 
   const handleShadowToggle = (enabled: boolean): void => {
@@ -572,7 +631,15 @@ export const App = () => {
       </header>
 
       <main class="workspace">
-        <section class="stage-shell" aria-label="Preview">
+        <section
+          class="stage-shell"
+          classList={{
+            'has-canvas-ratio': Boolean(canvasAspectRatio()),
+            'is-canvas-tall': isCanvasTall(),
+          }}
+          style={canvasStageStyle()}
+          aria-label={`Preview canvas ${formatCanvasAspectRatio(canvasAspectRatio())}`}
+        >
           <StageView
             onReady={handleStageReady}
             onError={(error) => setMessage(toErrorMessage(error))}
@@ -581,13 +648,31 @@ export const App = () => {
         </section>
 
         <aside
+          id="editor-control-dock"
           class="control-dock"
+          classList={{ 'is-hidden': !controlsVisible() }}
           aria-label="Controls"
+          hidden={!controlsVisible()}
           style={{
             '--dock-offset-x': `${dockOffset().x}px`,
             '--dock-offset-y': `${dockOffset().y}px`,
           }}
         >
+          <div class="control-dock-header">
+            <div>
+              <span class="control-dock-kicker">Editor panel</span>
+              <h2>{readEditorToolLabel(activeTool())}</h2>
+            </div>
+            <button
+              class="drag-handle"
+              type="button"
+              aria-label="Drag control panel"
+              onPointerDown={(event) => handleDockDragStart(event as PointerEvent)}
+            >
+              ≡
+            </button>
+          </div>
+
           <div class="control-banner-shell" aria-hidden="true">
             <img
               class="control-banner control-banner-bg"
@@ -606,18 +691,30 @@ export const App = () => {
               characters={sampleManifest.characters}
               selectedModelId={selectedModel().id}
               disabled={!canUseStage()}
+              active={activeTool() === 'character'}
               actors={actors().map((actor, index) => ({ id: actor.id, label: `${index + 1}. ${actor.model.name}` }))}
               activeActorId={activeActorId()}
               onSelect={handleModelSelect}
               onAdd={(model) => void addModel(model)}
               onDeleteActive={handleDeleteActive}
               onActiveActorChange={handleActiveActorChange}
-              onDragStart={handleDockDragStart}
+            />
+
+            <CanvasPanel
+              active={activeTool() === 'canvas'}
+              disabled={status() === 'loading'}
+              presetId={canvasPresetId()}
+              customRatio={customCanvasRatio()}
+              resolvedRatio={canvasAspectRatio()}
+              onPresetChange={handleCanvasPresetChange}
+              onCustomRatioChange={handleCustomCanvasRatioChange}
+              onReset={handleCanvasReset}
             />
 
             <ActionPanel
               model={activeActor()?.model ?? selectedModel()}
               disabled={!canControlMotion()}
+              activeTool={activeTool()}
               timeScale={timeScale()}
               sizeScale={sizeScale()}
               rotation={rotation()}
@@ -637,6 +734,22 @@ export const App = () => {
             />
           </div>
         </aside>
+
+        <button
+          class="control-panel-toggle"
+          type="button"
+          aria-pressed={controlsVisible()}
+          aria-controls="editor-control-dock"
+          onClick={handleControlsToggle}
+        >
+          {controlsVisible() ? 'Hide Panel' : 'Show Panel'}
+        </button>
+
+        <EditorToolbar
+          activeTool={activeTool()}
+          hasActiveActor={Boolean(activeActorId())}
+          onSelect={handleEditorToolSelect}
+        />
       </main>
     </div>
   );

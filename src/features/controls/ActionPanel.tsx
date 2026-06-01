@@ -1,10 +1,13 @@
 import { createMemo, createSignal, For } from 'solid-js';
 
 import type { ActionDefinition, ModelDefinition } from '@/domain/manifest';
+import type { EditorToolId } from '@/features/editor/editorTools';
+import { EDITOR_CONTROL_LIMITS } from '@/shared/editorLimits';
 
 interface ActionPanelProps {
   readonly model: ModelDefinition;
   readonly disabled: boolean;
+  readonly activeTool: EditorToolId;
   readonly timeScale: number;
   readonly sizeScale: number;
   readonly rotation: number;
@@ -111,114 +114,146 @@ export const ActionPanel = (props: ActionPanelProps) => {
   };
 
   return (
-    <section class="control-section" aria-labelledby="action-panel-title">
-      <div class="section-heading">
-        <h2 id="action-panel-title">Animation</h2>
-      </div>
+    <>
+      <section
+        class="control-section editor-panel"
+        classList={{ 'is-active': props.activeTool === 'motion' }}
+        hidden={props.activeTool !== 'motion'}
+        aria-hidden={props.activeTool === 'motion' ? 'false' : 'true'}
+        aria-labelledby="motion-panel-title"
+      >
+        <div class="section-heading">
+          <h2 id="motion-panel-title">Motion</h2>
+        </div>
 
-      <label class="field">
-        <span>Search Motion</span>
-        <input
-          type="search"
-          value={query()}
-          onInput={handleQueryInput}
-          placeholder="Label, animation, id"
-          disabled={props.disabled}
-        />
-      </label>
+        <label class="field">
+          <span>Search Motion</span>
+          <input
+            type="search"
+            value={query()}
+            onInput={handleQueryInput}
+            placeholder="Label, animation, id"
+            disabled={props.disabled}
+          />
+        </label>
 
-      <label class="field">
-        <span>Motion</span>
-        <select value={selectedAction()?.id ?? ''} onChange={handleActionSelect} disabled={props.disabled}>
-          <For each={filteredActions()}>
-            {(action) => <option value={action.id}>{action.label}</option>}
-          </For>
-        </select>
-      </label>
+        <label class="field">
+          <span>Motion</span>
+          <select value={selectedAction()?.id ?? ''} onChange={handleActionSelect} disabled={props.disabled}>
+            <For each={filteredActions()}>
+              {(action) => <option value={action.id}>{action.label}</option>}
+            </For>
+          </select>
+        </label>
 
-      <div class="button-row">
-        <button class="primary-button" type="button" onClick={handlePlay} disabled={props.disabled}>
-          Play
+        <div class="button-row">
+          <button class="primary-button" type="button" onClick={handlePlay} disabled={props.disabled}>
+            Play
+          </button>
+          <button class="ghost-button" type="button" onClick={props.onStop} disabled={props.disabled}>
+            Stop
+          </button>
+        </div>
+
+        <label class="field range-field">
+          <span>Speed</span>
+          <input
+            type="range"
+            min={EDITOR_CONTROL_LIMITS.timeScale.min}
+            max={EDITOR_CONTROL_LIMITS.timeScale.max}
+            step={EDITOR_CONTROL_LIMITS.timeScale.step}
+            value={props.timeScale}
+            onInput={handleTimeScaleChange}
+            disabled={props.disabled}
+          />
+          <strong>{props.timeScale.toFixed(1)}x</strong>
+        </label>
+
+        <label class="field checkbox-field">
+          <span>Loop</span>
+          <input type="checkbox" checked={loopEnabled()} onChange={handleLoopToggle} disabled={props.disabled} />
+        </label>
+      </section>
+
+      <section
+        class="control-section editor-panel"
+        classList={{ 'is-active': props.activeTool === 'transform' }}
+        hidden={props.activeTool !== 'transform'}
+        aria-hidden={props.activeTool === 'transform' ? 'false' : 'true'}
+        aria-labelledby="transform-panel-title"
+      >
+        <div class="section-heading">
+          <h2 id="transform-panel-title">Transform</h2>
+        </div>
+
+        <label class="field range-field">
+          <span>Size</span>
+          <input
+            type="range"
+            min={EDITOR_CONTROL_LIMITS.sizeScale.min}
+            max={EDITOR_CONTROL_LIMITS.sizeScale.max}
+            step={EDITOR_CONTROL_LIMITS.sizeScale.step}
+            value={props.sizeScale}
+            onInput={handleSizeScaleChange}
+            disabled={props.disabled}
+          />
+          <strong>{props.sizeScale.toFixed(1)}x</strong>
+        </label>
+
+        <label class="field range-field">
+          <span>Rotate</span>
+          <input
+            type="range"
+            min={EDITOR_CONTROL_LIMITS.rotation.min}
+            max={EDITOR_CONTROL_LIMITS.rotation.max}
+            step={EDITOR_CONTROL_LIMITS.rotation.step}
+            value={props.rotation}
+            onInput={handleRotationChange}
+            disabled={props.disabled}
+          />
+          <strong>{props.rotation.toFixed(0)}°</strong>
+        </label>
+
+        <label class="field checkbox-field">
+          <span>Mirror</span>
+          <input type="checkbox" checked={props.mirrorEnabled} onChange={handleMirrorToggle} disabled={props.disabled} />
+        </label>
+
+        <label class="field checkbox-field">
+          <span>Shadow</span>
+          <input type="checkbox" checked={props.shadowEnabled} onChange={handleShadowToggle} disabled={props.disabled} />
+        </label>
+
+        <button class="ghost-button" type="button" onClick={props.onResetTransform} disabled={props.disabled}>
+          Reset Transform
         </button>
-        <button class="ghost-button" type="button" onClick={props.onStop} disabled={props.disabled}>
-          Stop
-        </button>
-      </div>
+      </section>
 
-      <label class="field range-field">
-        <span>Speed</span>
-        <input
-          type="range"
-          min="0.1"
-          max="4"
-          step="0.1"
-          value={props.timeScale}
-          onInput={handleTimeScaleChange}
-          disabled={props.disabled}
-        />
-        <strong>{props.timeScale.toFixed(1)}x</strong>
-      </label>
+      <section
+        class="control-section editor-panel"
+        classList={{ 'is-active': props.activeTool === 'export' }}
+        hidden={props.activeTool !== 'export'}
+        aria-hidden={props.activeTool === 'export' ? 'false' : 'true'}
+        aria-labelledby="export-panel-title"
+      >
+        <div class="section-heading">
+          <h2 id="export-panel-title">Export</h2>
+        </div>
 
-      <label class="field range-field">
-        <span>Size</span>
-        <input
-          type="range"
-          min="0.2"
-          max="3"
-          step="0.1"
-          value={props.sizeScale}
-          onInput={handleSizeScaleChange}
-          disabled={props.disabled}
-        />
-        <strong>{props.sizeScale.toFixed(1)}x</strong>
-      </label>
-
-      <label class="field checkbox-field">
-        <span>Loop</span>
-        <input type="checkbox" checked={loopEnabled()} onChange={handleLoopToggle} disabled={props.disabled} />
-      </label>
-
-      <label class="field range-field">
-        <span>Rotate</span>
-        <input
-          type="range"
-          min="-180"
-          max="180"
-          step="1"
-          value={props.rotation}
-          onInput={handleRotationChange}
-          disabled={props.disabled}
-        />
-        <strong>{props.rotation.toFixed(0)}°</strong>
-      </label>
-
-      <label class="field checkbox-field">
-        <span>Mirror</span>
-        <input type="checkbox" checked={props.mirrorEnabled} onChange={handleMirrorToggle} disabled={props.disabled} />
-      </label>
-
-      <button class="ghost-button" type="button" onClick={props.onResetTransform} disabled={props.disabled}>
-        Reset Transform
-      </button>
-
-      <div class="button-row">
-        <button class="ghost-button" type="button" onClick={props.onDownloadPng} disabled={props.disabled}>
-          Download PNG
-        </button>
-        <button
-          class="ghost-button"
-          type="button"
-          onClick={() => props.onDownloadGif(selectedAction(), loopEnabled())}
-          disabled={props.disabled || props.exportingGif}
-        >
-          {props.exportingGif ? 'Exporting GIF...' : 'Download GIF'}
-        </button>
-      </div>
-
-      <label class="field checkbox-field">
-        <span>Shadow</span>
-        <input type="checkbox" checked={props.shadowEnabled} onChange={handleShadowToggle} disabled={props.disabled} />
-      </label>
-    </section>
+        <div class="button-row">
+          <button class="ghost-button" type="button" onClick={props.onDownloadPng} disabled={props.disabled}>
+            Download PNG
+          </button>
+          <button
+            class="ghost-button"
+            type="button"
+            onClick={() => props.onDownloadGif(selectedAction(), loopEnabled())}
+            disabled={props.disabled || props.exportingGif}
+          >
+            {props.exportingGif ? 'Exporting GIF...' : 'Download GIF'}
+          </button>
+        </div>
+      </section>
+    </>
   );
 };
