@@ -173,11 +173,12 @@ input:focus-visible {
 
 .control-banner-shell {
   position: relative;
+  container-type: inline-size;
   width: 100%;
   margin-bottom: 2px;
   --banner-art-width: 53%;
   --banner-art-right: -8.6%;
-  --banner-art-bottom: -7.5%;
+  --banner-art-top-ratio: -0.168;
 }
 
 .control-banner-bg {
@@ -190,6 +191,7 @@ input:focus-visible {
   position: absolute;
   right: var(--banner-art-right);
   top: -45px;
+  top: calc(100cqw * var(--banner-art-top-ratio));
   width: var(--banner-art-width);
   pointer-events: none;
 }
@@ -404,6 +406,7 @@ input:focus-visible {
   .control-banner-right {
     right: var(--banner-art-right);
     top: -45px;
+    top: calc(100cqw * var(--banner-art-top-ratio));
     width: var(--banner-art-width);
   }
 
